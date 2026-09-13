@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>X-NOVA Paper-Trading Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #141a32;
+    --panel2: #1b2343;
+    --text: #e6ecff;
+    --muted: #8a96c0;
+    --green: #26d07c;
+    --red: #ff4d6d;
+    --accent: #6aa9ff;
+    --yellow: #f7c948;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 14px 22px; background: linear-gradient(90deg,#1a1f45,#0d1230);
+    border-bottom: 1px solid #222a52;
+  }
+  header h1 { margin:0; font-size:20px; letter-spacing:1px; }
+  .logo { color: var(--accent); font-weight:800; }
+  .pill {
+    padding:5px 12px; border-radius:999px; font-size:12px; font-weight:700;
+    background: #222a52;
+  }
+  .pill.run { background: rgba(38,208,124,0.15); color: var(--green); border:1px solid var(--green); }
+  .pill.pause { background: rgba(255,77,109,0.15); color: var(--red); border:1px solid var(--red); }
+  main { padding: 18px 22px; display:grid; gap:16px; grid-template-columns: repeat(12, 1fr); }
+  .card {
+    background: var(--panel); border:1px solid #222a52; border-radius:12px;
+    padding:16px;
+  }
+  .kpi { grid-column: span 3; }
+  .kpi .label { color: var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:1px; }
+  .kpi .value { font-size:24px; font-weight:700; margin-top:6px; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .chart-card { grid-column: span 8; }
+  .side-card  { grid-column: span 4; }
+  .full-card { grid-column: span 12; }
+  h2 { font-size:14px; margin:0 0 10px 0; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+  canvas { width:100%; height:320px; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #222a52; }
+  th { color: var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; }
+  .btn {
+    border:none; padding:8px 14px; border-radius:8px; font-weight:600; cursor:pointer;
+    margin-right:6px; color:#fff;
+  }
+  .btn.start { background: var(--green); }
+  .btn.stop  { background: var(--red); }
+  .btn.reset { background: #555; }
+  .signal {
+    background: var(--panel2); padding:10px 12px; border-radius:8px;
+    font-family: "SFMono-Regular", Consolas, monospace; font-size:13px; color: var(--yellow);
+    word-break: break-word;
+  }
+  .ind-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed #222a52; font-size:13px; }
+  .ind-row:last-child { border-bottom:none; }
+  footer { text-align:center; color: var(--muted); font-size:12px; padding:18px; }
+  .warn {
+    background: rgba(247,201,72,0.1); border:1px solid var(--yellow); color: var(--yellow);
+    padding:10px 14px; border-radius:10px; font-size:13px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="logo">🚀 X-NOVA</span> &nbsp;Paper-Trading Dashboard</h1>
+  <div>
+    <span id="statusPill" class="pill pause">🔴 PAUSED</span>
+  </div>
+</header>
+
+<main>
+  <div class="card kpi"><div class="label">Symbol</div><div class="value" id="sym">{{ symbol }}</div></div>
+  <div class="card kpi"><div class="label">Price</div><div class="value" id="price">$—</div></div>
+  <div class="card kpi"><div class="label">Equity</div><div class="value" id="equity">$—</div></div>
+  <div class="card kpi"><div class="label">P&amp;L</div><div class="value" id="pnl">—</div></div>
+
+  <div class="card chart-card">
+    <h2>Price (paper candles)</h2>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card side-card">
+    <h2>Controls</h2>
+    <button class="btn start" onclick="control('start')">▶ Start Bot</button>
+    <button class="btn stop"  onclick="control('stop')">⏸ Stop Bot</button>
+    <button class="btn reset" onclick="if(confirm('Reset account?'))control('reset')">↺ Reset</button>
+    <div style="height:14px"></div>
+    <h2>Last Signal</h2>
+    <div class="signal" id="signal">—</div>
+    <div style="height:14px"></div>
+    <h2>Indicators</h2>
+    <div id="inds"></div>
+    <div style="height:14px"></div>
+    <h2>Risk Settings</h2>
+    <div id="risk" class="ind-wrap"></div>
+  </div>
+
+  <div class="card full-card">
+    <div class="warn">
+      ⚠️ <b>Paper trading only.</b> This bot runs on simulated prices and virtual funds.
+      No real trades are placed. Use for learning and strategy testing — algorithmic
+      trading carries significant real-world financial risk.
+    </div>
+  </div>
+
+  <div class="card full-card">
+    <h2>Open Positions (<span id="posCount">0</span>/<span id="posMax">—</span>)</h2>
+    <table>
+      <thead><tr><th>#</th><th>Entry</th><th>Size</th><th>PnL</th><th>Stop-Loss</th><th>Take-Profit</th><th>Opened</th></tr></thead>
+      <tbody id="positions"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:14px">No open positions</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card full-card">
+    <h2>Recent Trades</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Side</th><th>Price</th><th>Qty</th><th>PnL</th><th>Reason</th></tr></thead>
+      <tbody id="trades"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:14px">No trades yet</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<footer>X-NOVA Paper-Trading Bot • Educational use only • Not financial advice</footer>
+
+<script>
+// ---- Minimal candlestick canvas renderer (no external CDN) ----
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+
+function fitCanvas(){
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', ()=>{ fitCanvas(); draw(lastData); });
+
+let lastData = null;
+
+function draw(data){
+  if(!data || !data.candles || !data.candles.length) return;
+  fitCanvas();
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  ctx.clearRect(0,0,w,h);
+  const candles = data.candles;
+  const prices = candles.flatMap(c=>[c.h,c.l]);
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const pad = 20;
+  const chartH = h - pad*2;
+  const chartW = w - pad*2;
+  const cw = chartW / candles.length;
+  const y = p => pad + (max - p)/(max-min) * chartH;
+
+  // gridlines
+  ctx.strokeStyle = '#222a52'; ctx.lineWidth = 1;
+  for(let i=0;i<5;i++){
+    const yy = pad + (chartH/4)*i;
+    ctx.beginPath(); ctx.moveTo(pad, yy); ctx.lineTo(w-pad, yy); ctx.stroke();
+    const pp = max - (max-min)*(i/4);
+    ctx.fillStyle = '#8a96c0'; ctx.font='11px monospace';
+    ctx.fillText('$'+pp.toFixed(0), 4, yy+12);
+  }
+
+  // candles
+  candles.forEach((c,i)=>{
+    const x = pad + i*cw + cw*0.5;
+    const up = c.c >= c.o;
+    ctx.strokeStyle = up ? '#26d07c' : '#ff4d6d';
+    ctx.fillStyle   = up ? 'rgba(38,208,124,0.7)' : 'rgba(255,77,109,0.7)';
+    ctx.beginPath();
+    ctx.moveTo(x, y(c.h)); ctx.lineTo(x, y(c.l)); ctx.stroke();
+    const bodyTop = y(Math.max(c.o, c.c));
+    const bodyBot = y(Math.min(c.o, c.c));
+    const bw = Math.max(cw*0.7, 1);
+    ctx.fillRect(x - bw/2, bodyTop, bw, Math.max(bodyBot-bodyTop,1));
+  });
+
+  // EMA trend line on top
+  // (rendered from last N closes matching indicators — approximate here using close avg)
+  ctx.strokeStyle = '#6aa9ff'; ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  candles.forEach((c,i)=>{
+    const x = pad + i*cw + cw*0.5;
+    if(i===0) ctx.moveTo(x, y(c.c)); else ctx.lineTo(x, y(c.c));
+  });
+  ctx.stroke();
+}
+
+function fmtTime(iso){
+  const d = new Date(iso);
+  return d.toLocaleString();
+}
+
+async function control(action){
+  await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+  await refresh();
+}
+
+async function refresh(){
+  const r = await fetch('/api/state');
+  const d = await r.json();
+  lastData = d;
+
+  document.getElementById('sym').textContent = d.symbol;
+  document.getElementById('price').textContent = '$'+d.price.toLocaleString(undefined,{maximumFractionDigits:2});
+  document.getElementById('equity').textContent = '$'+d.equity.toLocaleString(undefined,{maximumFractionDigits:2});
+  const pnlEl = document.getElementById('pnl');
+  pnlEl.textContent = (d.pnl_pct>=0?'+':'')+d.pnl_pct.toFixed(2)+'%';
+  pnlEl.className = 'value '+(d.pnl_pct>=0?'pos':'neg');
+
+  const pill = document.getElementById('statusPill');
+  if(d.running){ pill.textContent='🟢 RUNNING'; pill.className='pill run'; }
+  else { pill.textContent='🔴 PAUSED'; pill.className='pill pause'; }
+
+  document.getElementById('signal').textContent = d.last_signal || '—';
+
+  const inds = document.getElementById('inds');
+  inds.innerHTML = '';
+  const indEntries = [
+    ['RSI', d.indicators.rsi],
+    ['MACD', d.indicators.macd],
+    ['MACD Signal', d.indicators.macd_signal],
+    ['EMA Trend', d.indicators.ema_trend?.toLocaleString(undefined,{maximumFractionDigits:2})],
+  ];
+  indEntries.forEach(([k,v])=>{
+    const row = document.createElement('div'); row.className='ind-row';
+    row.innerHTML = `<span>${k}</span><span style="color:var(--accent);font-family:monospace">${v}</span>`;
+    inds.appendChild(row);
+  });
+
+  const riskEl = document.getElementById('risk');
+  riskEl.innerHTML = '';
+  Object.entries(d.risk).forEach(([k,v])=>{
+    const label = k.replace(/_/g,' ');
+    const row = document.createElement('div'); row.className='ind-row';
+    row.innerHTML = `<span>${label}</span><span>${v}</span>`;
+    riskEl.appendChild(row);
+  });
+
+  document.getElementById('posCount').textContent = d.positions_open;
+  document.getElementById('posMax').textContent = d.max_positions;
+
+  const pbody = document.getElementById('positions');
+  if(d.positions.length===0){
+    pbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:14px">No open positions</td></tr>';
+  } else {
+    pbody.innerHTML = d.positions.map(p=>`
+      <tr>
+        <td>#${p.id}</td>
+        <td>$${p.entry_price.toLocaleString(undefined,{maximumFractionDigits:2})}</td>
+        <td>$${p.size_usdt.toFixed(2)}</td>
+        <td class="${p.pnl>=0?'pos':'neg'}">${p.pnl>=0?'+':''}${p.pnl.toFixed(2)} (${p.pnl_pct>=0?'+':''}${p.pnl_pct.toFixed(2)}%)</td>
+        <td>$${p.stop_loss.toFixed(2)}</td>
+        <td>$${p.take_profit.toFixed(2)}</td>
+        <td>${fmtTime(p.entry_time)}</td>
+      </tr>`).join('');
+  }
+
+  const tbody = document.getElementById('trades');
+  if(d.trades.length===0){
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:14px">No trades yet</td></tr>';
+  } else {
+    tbody.innerHTML = d.trades.map(t=>`
+      <tr>
+        <td>${fmtTime(t.time)}</td>
+        <td><b style="color:${t.side==='buy'?'var(--green)':'var(--red)'}">${t.side.toUpperCase()}</b></td>
+        <td>$${t.price.toLocaleString(undefined,{maximumFractionDigits:2})}</td>
+        <td>${t.quantity.toFixed(6)}</td>
+        <td class="${t.pnl>=0?'pos':'neg'}">${t.pnl? (t.pnl>=0?'+':'')+t.pnl.toFixed(2): '—'}</td>
+        <td style="color:var(--muted)">${t.reason}</td>
+      </tr>`).join('');
+  }
+
+  draw(d);
+}
+
+fitCanvas();
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
