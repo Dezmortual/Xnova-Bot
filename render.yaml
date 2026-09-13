@@ -1,0 +1,31 @@
+# Render.com deployment config (no credit card required, but free tier sleeps after 15min idle)
+# Deploy: push repo to GitHub, connect to Render, choose "Blueprint"
+services:
+  - type: web
+    name: xnova-trading-bot
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false      # set this in Render dashboard after deploy
+      - key: ALLOWED_USER_IDS
+        value: "5719761722"
+      - key: START_BALANCE
+        value: "10000"
+      - key: STOP_LOSS_PCT
+        value: "2.0"
+      - key: TAKE_PROFIT_PCT
+        value: "4.0"
+      - key: MAX_POSITION_PCT
+        value: "5.0"
+      - key: MAX_OPEN_POSITIONS
+        value: "3"
+      - key: RSI_OVERSOLD
+        value: "35"
+      - key: RSI_OVERBOUGHT
+        value: "65"
+      - key: SYMBOL
+        value: "BTC/USDT"
